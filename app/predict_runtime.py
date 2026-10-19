@@ -14,7 +14,9 @@ from pathlib import Path
 import pandas as pd
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-MODEL_PATH = Path(os.environ.get("CHURN_MODEL_PATH", str(BASE_DIR / "models" / "model_artifacts.pkl")))
+MODEL_PATH = Path(
+    os.environ.get("CHURN_MODEL_PATH", str(BASE_DIR / "models" / "model_artifacts.pkl"))
+)
 
 _SVC_COLS = [
     "PhoneService",
@@ -25,6 +27,33 @@ _SVC_COLS = [
     "TechSupport",
     "StreamingTV",
     "StreamingMovies",
+]
+
+# Must match src/churn_analysis.py exactly, otherwise training and serving
+# disagree about what a feature means.
+_BINARY_MAP = {"Yes": 1, "No": 0, "No phone service": 0, "No internet service": 0}
+_YES_NO_COLS = [
+    "Partner",
+    "Dependents",
+    "PhoneService",
+    "MultipleLines",
+    "OnlineSecurity",
+    "OnlineBackup",
+    "DeviceProtection",
+    "TechSupport",
+    "StreamingTV",
+    "StreamingMovies",
+    "PaperlessBilling",
+]
+_OHE_COLS = ["InternetService", "Contract", "PaymentMethod", "tenure_group"]
+_REQUIRED_COLS = [
+    "gender",
+    "tenure",
+    "MonthlyCharges",
+    "Contract",
+    "InternetService",
+    "PaymentMethod",
+    *_YES_NO_COLS,
 ]
 
 _state: dict = {
@@ -70,17 +99,33 @@ def feature_count() -> int:
 
 
 def preprocess(data: dict) -> pd.DataFrame:
+    missing = [col for col in _REQUIRED_COLS if col not in data]
+    if missing:
+        raise ValueError(f"Missing required fields: {', '.join(sorted(missing))}")
+
     df = pd.DataFrame([data])
 
-    for col in _SVC_COLS:
-        if col in df.columns:
-            df[col] = df[col].apply(lambda x: 1 if str(x).strip().lower() == "yes" else 0)
+    # Binary columns are mapped exactly as during training. Leaving them as
+    # strings made get_dummies emit *_Male / *_Yes columns that the artifact
+    # does not contain, so those features silently became 0 at scoring time.
+    for col in _YES_NO_COLS:
+        df[col] = df[col].map(_BINARY_MAP).fillna(0).astype(int)
+    df["gender"] = (df["gender"].astype(str).str.strip().str.lower() == "male").astype(
+        int
+    )
+
+    df["tenure"] = pd.to_numeric(df["tenure"], errors="raise")
+    df["MonthlyCharges"] = pd.to_numeric(df["MonthlyCharges"], errors="raise")
 
     df["num_services"] = df[_SVC_COLS].sum(axis=1)
-    df["charge_per_service"] = df["MonthlyCharges"] / (df["num_services"] + 1)
+    df["charge_per_service"] = (df["MonthlyCharges"] / (df["num_services"] + 1)).round(
+        2
+    )
     df["is_longterm"] = df["Contract"].isin(["One year", "Two year"]).astype(int)
     df["unprotected_internet"] = (
-        (df["InternetService"] != "No") & (df["OnlineSecurity"] == 0) & (df["TechSupport"] == 0)
+        (df["InternetService"] != "No")
+        & (df["OnlineSecurity"] == 0)
+        & (df["TechSupport"] == 0)
     ).astype(int)
     df["tenure_group"] = pd.cut(
         df["tenure"],
@@ -89,7 +134,7 @@ def preprocess(data: dict) -> pd.DataFrame:
         include_lowest=True,
     )
 
-    df = pd.get_dummies(df)
+    df = pd.get_dummies(df, columns=_OHE_COLS)
     df = df.reindex(columns=_state["feature_cols"], fill_value=0)
 
     if _state["scaler"] is not None and _state["scale_cols"] is not None:

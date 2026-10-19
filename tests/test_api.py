@@ -49,8 +49,12 @@ def test_ready_reports_the_model_state(client):
 @pytest.mark.skipif(not MODEL_PRESENT, reason="model artifact is a build output")
 def test_predict_scores_a_customer(client):
     payload = {
+        "gender": "Female",
+        "Partner": "Yes",
+        "Dependents": "No",
         "tenure": 42,
         "MonthlyCharges": 70.5,
+        "TotalCharges": 2961.0,
         "Contract": "One year",
         "InternetService": "Fiber optic",
         "OnlineSecurity": "No",
@@ -61,6 +65,8 @@ def test_predict_scores_a_customer(client):
         "DeviceProtection": "No",
         "StreamingTV": "Yes",
         "StreamingMovies": "Yes",
+        "PaperlessBilling": "Yes",
+        "PaymentMethod": "Electronic check",
     }
 
     response = client.post("/predict", json=payload)
@@ -68,3 +74,9 @@ def test_predict_scores_a_customer(client):
     assert response.status_code == 200
     body = response.json()
     assert 0.0 <= body["churn_probability"] <= 1.0
+
+
+def test_predict_rejects_an_incomplete_customer(client):
+    response = client.post("/predict", json={"gender": "Female"})
+
+    assert response.status_code == 422
