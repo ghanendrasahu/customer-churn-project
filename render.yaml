@@ -1,0 +1,14 @@
+# Render blueprint for customer-churn-project.
+# Mirrors the live service configuration; inert until an explicit Blueprint Sync.
+# Secret values are declared with sync:false and stay in the Render dashboard.
+services:
+- type: web
+  name: customer-churn-app
+  runtime: python
+  plan: free
+  region: oregon
+  branch: main
+  buildCommand: pip install -r requirements.txt && python src/generate_dataset.py && python src/churn_analysis.py
+  startCommand: sh -c "streamlit run app/app.py --server.port=${PORT:-10000} --server.address=0.0.0.0 --server.headless=true"
+  healthCheckPath: /_stcore/health
+  autoDeploy: true
