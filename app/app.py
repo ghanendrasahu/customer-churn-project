@@ -19,7 +19,9 @@ import ui  # noqa: E402
 
 API_BASE = os.environ.get("CHURN_API_BASE")
 
-ui.setup("Churn Risk", icon=ui.app_icon(_APP_DIR.parent / "assets"))
+ui.setup(
+    "Churn Risk", icon=ui.app_icon(_APP_DIR.parent / "assets"), sidebar_state="expanded"
+)
 
 st.markdown(
     """
