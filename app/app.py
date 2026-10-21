@@ -1,3 +1,7 @@
+"""Customer churn assessment UI."""
+
+from __future__ import annotations
+
 import os
 import sys
 from pathlib import Path
@@ -5,66 +9,88 @@ from pathlib import Path
 import requests
 import streamlit as st
 
-# Import the sibling runtime directly. `from app.predict_runtime import ...`
-# would resolve `app` to this file (app/app.py), which is not a package.
-# Adding the script directory also keeps it importable under Streamlit's
-# AppTest and any runner that does not seed sys.path with the script folder.
 _APP_DIR = Path(__file__).resolve().parent
 if str(_APP_DIR) not in sys.path:
     sys.path.insert(0, str(_APP_DIR))
 
 from predict_runtime import predict as predict_churn  # noqa: E402
 
-# Set CHURN_API_BASE (e.g. https://churn-api.onrender.com) to score through
-# the FastAPI service instead of the in-process model. Streamlit Cloud uses
-# the in-process path, since it cannot reach a localhost sidecar.
+import ui  # noqa: E402
+
 API_BASE = os.environ.get("CHURN_API_BASE")
 
-st.set_page_config(page_title="Telco Churn Analytics", layout="wide")
+ui.setup("Churn Risk", icon=ui.app_icon(_APP_DIR.parent / "assets"))
 
-st.title("Customer Churn Prediction Dashboard")
-st.markdown("---")
+st.markdown(
+    """
+    <style>
+      .churn-bar { height: 10px; border-radius: 999px; background: #232B3D; overflow: hidden; }
+      .churn-bar span { display: block; height: 100%; border-radius: 999px; }
+      .churn-scale { display: flex; justify-content: space-between; margin-top: 6px;
+                     color: #9AA4B8; font-size: 12px; }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
-col1, col2, col3 = st.columns(3)
+ui.page_header(
+    "Customer churn",
+    "Estimate how likely a subscriber is to leave, then act on the factors that keep them.",
+    eyebrow="CUSTOMER SUCCESS",
+    badge="Model ready",
+    icon_name="users",
+)
 
-with col1:
-    st.subheader("Demographics")
-    gender = st.selectbox("Gender", ["Male", "Female"])
-    senior = st.selectbox("Senior Citizen", ["No", "Yes"])
-    partner = st.selectbox("Partner", ["Yes", "No"])
-    dependents = st.selectbox("Dependents", ["Yes", "No"])
+left, right = st.columns([1.5, 1], gap="large")
 
-with col2:
-    st.subheader("Subscription Details")
-    tenure = st.slider("Tenure (Months)", 0, 72, 12)
-    contract = st.selectbox("Contract", ["Month-to-month", "One year", "Two year"])
-    paperless = st.selectbox("Paperless Billing", ["Yes", "No"])
-    payment = st.selectbox(
-        "Payment Method",
-        [
-            "Electronic check",
-            "Mailed check",
-            "Bank transfer (automatic)",
-            "Credit card (automatic)",
-        ],
+with left:
+    ui.section(
+        "Customer profile",
+        "Start from the current account details. Adjust any field to test a scenario.",
     )
+    with st.form("churn_form"):
+        st.markdown("**Demographics**")
+        d1, d2 = st.columns(2)
+        gender = d1.selectbox("Gender", ["Male", "Female"])
+        senior = d2.selectbox("Senior citizen", ["No", "Yes"])
+        partner = d1.selectbox("Partner", ["Yes", "No"])
+        dependents = d2.selectbox("Dependents", ["Yes", "No"])
 
-with col3:
-    st.subheader("Services and Charges")
-    internet = st.selectbox("Internet Service", ["DSL", "Fiber optic", "No"])
-    monthly = st.number_input("Monthly Charges ($)", 0.0, 200.0, 70.0)
-    total = st.number_input("Total Charges ($)", 0.0, 10000.0, 840.0)
+        st.markdown("**Subscription**")
+        s1, s2 = st.columns(2)
+        tenure = s1.slider("Tenure (months)", 0, 72, 12)
+        contract = s2.selectbox("Contract", ["Month-to-month", "One year", "Two year"])
+        paperless = s1.selectbox("Paperless billing", ["Yes", "No"])
+        payment = s2.selectbox(
+            "Payment method",
+            [
+                "Electronic check",
+                "Mailed check",
+                "Bank transfer (automatic)",
+                "Credit card (automatic)",
+            ],
+        )
 
-with st.expander("Additional Services"):
-    s1, s2, s3 = st.columns(3)
-    phone = s1.selectbox("Phone Service", ["Yes", "No"])
-    multiple = s1.selectbox("Multiple Lines", ["Yes", "No"])
-    security = s2.selectbox("Online Security", ["Yes", "No"])
-    backup = s2.selectbox("Online Backup", ["Yes", "No"])
-    protection = s3.selectbox("Device Protection", ["Yes", "No"])
-    support = s3.selectbox("Tech Support", ["Yes", "No"])
-    tv = st.selectbox("Streaming TV", ["Yes", "No"])
-    movies = st.selectbox("Streaming Movies", ["Yes", "No"])
+        st.markdown("**Services and charges**")
+        c1, c2, c3 = st.columns(3)
+        internet = c1.selectbox("Internet service", ["DSL", "Fiber optic", "No"])
+        monthly = c2.number_input("Monthly charges (USD)", 0.0, 200.0, 70.0)
+        total = c3.number_input("Total charges (USD)", 0.0, 10000.0, 840.0)
+
+        with st.expander("Additional services"):
+            a1, a2, a3 = st.columns(3)
+            phone = a1.selectbox("Phone service", ["Yes", "No"])
+            multiple = a1.selectbox("Multiple lines", ["Yes", "No"])
+            security = a2.selectbox("Online security", ["Yes", "No"])
+            backup = a2.selectbox("Online backup", ["Yes", "No"])
+            protection = a3.selectbox("Device protection", ["Yes", "No"])
+            support = a3.selectbox("Tech support", ["Yes", "No"])
+            tv = a1.selectbox("Streaming TV", ["Yes", "No"])
+            movies = a2.selectbox("Streaming movies", ["Yes", "No"])
+
+        submitted = st.form_submit_button(
+            "Assess risk", type="primary", width="stretch"
+        )
 
 data = {
     "gender": gender,
@@ -88,47 +114,106 @@ data = {
     "PaymentMethod": payment,
 }
 
-st.markdown("---")
+RISK_BANDS = (
+    (
+        0.7,
+        "High risk",
+        "danger",
+        "#F17C7C",
+        "Likely to leave. Act before the next renewal.",
+    ),
+    (
+        0.4,
+        "Medium risk",
+        "warning",
+        "#F2B544",
+        "Some warning signs. A targeted offer can help.",
+    ),
+    (
+        0.0,
+        "Low risk",
+        "success",
+        "#46D39A",
+        "Likely to stay. Maintain service and upsell carefully.",
+    ),
+)
+
 
 def show_result(res: dict) -> None:
     if "error" in res:
-        st.error(f"Logic Error: {res['error']}")
+        ui.error_state(
+            "The model could not score this profile. Check the account fields and try again.",
+            title="Assessment failed",
+            hint="Your customer data was not stored.",
+        )
         return
 
-    prob = res["churn_probability"]
-    risk_val = prob * 100
+    prob = float(res["churn_probability"])
+    pct = prob * 100
+    _, band, tone, color, message = next(
+        (entry for entry in RISK_BANDS if prob > entry[0]), RISK_BANDS[-1]
+    )
 
-    res_col1, res_col2 = st.columns(2)
+    ui.metric_grid(
+        [
+            {
+                "label": "Churn probability",
+                "value": f"{pct:.1f}%",
+                "caption": "estimated for this profile",
+            }
+        ]
+    )
+    st.markdown(
+        f'<div class="churn-bar"><span style="width:{pct:.1f}%; background:{color};"></span></div>'
+        '<div class="churn-scale"><span>0%</span><span>100%</span></div>',
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        ui.badge(band, tone)
+        + f"<p style='margin:.6rem 0 0; color:#9AA4B8'>{message}</p>",
+        unsafe_allow_html=True,
+    )
 
-    with res_col1:
-        st.metric(label="Churn Probability", value=f"{risk_val:.1f}%")
-        if prob > 0.7:
-            st.error("HIGH RISK: This customer is likely to leave.")
-        elif prob > 0.4:
-            st.warning("MEDIUM RISK: Targeted retention recommended.")
-        else:
-            st.success("LOW RISK: This is likely a loyal customer.")
-
-    with res_col2:
-        st.subheader("Retention Strategy")
-        if prob > 0.5:
-            st.write("1. Offer upgrade to long-term contract.")
-            st.write("2. Bundle tech support or online security.")
-            st.write("3. Provide a loyalty discount on monthly charges.")
-        else:
-            st.write("Maintain current service level and consider selective upsell.")
-
-
-if st.button("Analyze Customer Risk", use_container_width=True):
-    if API_BASE:
-        try:
-            res = requests.post(f"{API_BASE}/predict", json=data, timeout=30).json()
-        except Exception:
-            st.error(
-                f"Connection Error: FastAPI did not respond at {API_BASE}. "
-                "Unset CHURN_API_BASE to use the built-in in-process model."
-            )
-            st.stop()
+    ui.section("Retention playbook")
+    if prob > 0.5:
+        st.markdown(
+            "- Offer an upgrade to a one or two year contract.\n"
+            "- Bundle tech support or online security.\n"
+            "- Add a loyalty discount to the monthly charge.\n"
+            "- Schedule a check-in before the next billing date."
+        )
     else:
-        res = predict_churn(data)
-    show_result(res)
+        st.markdown(
+            "- Keep the current service level.\n"
+            "- Consider a selective upsell for streaming or backup.\n"
+            "- Re-score after the next contract change."
+        )
+
+
+with right:
+    ui.section("Assessment")
+    if submitted:
+        if API_BASE:
+            try:
+                response = requests.post(f"{API_BASE}/predict", json=data, timeout=30)
+                response.raise_for_status()
+                result = response.json()
+            except Exception:
+                ui.error_state(
+                    "The scoring service did not respond. Try again in a moment.",
+                    title="Service unavailable",
+                    hint="The in-process model is used when no external service is configured.",
+                )
+                result = None
+        else:
+            result = predict_churn(data)
+
+        if result is not None:
+            show_result(result)
+    else:
+        ui.empty_state(
+            "No assessment yet",
+            "Adjust the customer profile and select Assess risk. The churn probability "
+            "and a retention playbook will appear here.",
+            icon_name="chart",
+        )
