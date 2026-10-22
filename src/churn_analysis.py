@@ -1,23 +1,17 @@
-import os, warnings, pickle
-import numpy as np
-import pandas as pd
-import matplotlib
-matplotlib.use("Agg") # Required for running without a GUI
-import matplotlib.pyplot as plt
-import matplotlib.ticker
-import seaborn as sns
+import os
+import pickle
+import warnings
 
-from sklearn.model_selection   import train_test_split, StratifiedKFold, cross_val_score
-from sklearn.preprocessing     import StandardScaler
-from sklearn.linear_model      import LogisticRegression
-from sklearn.ensemble          import RandomForestClassifier, GradientBoostingClassifier
-from sklearn.metrics           import (
-    accuracy_score, precision_score, recall_score, f1_score,
-    roc_auc_score, roc_curve, confusion_matrix, classification_report,
-    ConfusionMatrixDisplay
-)
-from sklearn.inspection        import permutation_importance
+import matplotlib
+import pandas as pd
+
+matplotlib.use("Agg") # Required for running without a GUI
 from pathlib import Path
+
+import matplotlib.ticker
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
 
 warnings.filterwarnings("ignore")
 

@@ -27,7 +27,7 @@ jobs:
         run: pip install -r requirements-dev.txt
 
       - name: Ruff
-        run: ruff check app src tests
+        run: ruff check --isolated --select E4,E7,E9,F app src tests
 
       - name: Pytest
         run: python -m pytest tests -q
