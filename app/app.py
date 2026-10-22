@@ -1,5 +1,21 @@
+import os
+import sys
+from pathlib import Path
+
 import requests
 import streamlit as st
+
+# Allow `streamlit run app/app.py` from the repo root and from any cwd.
+ROOT = Path(__file__).resolve().parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from app.predict_runtime import predict_churn  # noqa: E402
+
+# Set CHURN_API_BASE (e.g. https://churn-api.onrender.com) to score through
+# the FastAPI service instead of the in-process model. Streamlit Cloud uses
+# the in-process path, since it cannot reach a localhost sidecar.
+API_BASE = os.environ.get("CHURN_API_BASE")
 
 st.set_page_config(page_title="Telco Churn Analytics", layout="wide")
 
@@ -71,35 +87,45 @@ data = {
 
 st.markdown("---")
 
-if st.button("Analyze Customer Risk", use_container_width=True):
-    try:
-        res = requests.post("http://127.0.0.1:8000/predict", json=data, timeout=30).json()
+def show_result(res: dict) -> None:
+    if "error" in res:
+        st.error(f"Logic Error: {res['error']}")
+        return
 
-        if "error" in res:
-            st.error(f"Logic Error: {res['error']}")
+    prob = res["churn_probability"]
+    risk_val = prob * 100
+
+    res_col1, res_col2 = st.columns(2)
+
+    with res_col1:
+        st.metric(label="Churn Probability", value=f"{risk_val:.1f}%")
+        if prob > 0.7:
+            st.error("HIGH RISK: This customer is likely to leave.")
+        elif prob > 0.4:
+            st.warning("MEDIUM RISK: Targeted retention recommended.")
         else:
-            prob = res["churn_probability"]
-            risk_val = prob * 100
+            st.success("LOW RISK: This is likely a loyal customer.")
 
-            res_col1, res_col2 = st.columns(2)
+    with res_col2:
+        st.subheader("Retention Strategy")
+        if prob > 0.5:
+            st.write("1. Offer upgrade to long-term contract.")
+            st.write("2. Bundle tech support or online security.")
+            st.write("3. Provide a loyalty discount on monthly charges.")
+        else:
+            st.write("Maintain current service level and consider selective upsell.")
 
-            with res_col1:
-                st.metric(label="Churn Probability", value=f"{risk_val:.1f}%")
-                if prob > 0.7:
-                    st.error("HIGH RISK: This customer is likely to leave.")
-                elif prob > 0.4:
-                    st.warning("MEDIUM RISK: Targeted retention recommended.")
-                else:
-                    st.success("LOW RISK: This is likely a loyal customer.")
 
-            with res_col2:
-                st.subheader("Retention Strategy")
-                if prob > 0.5:
-                    st.write("1. Offer upgrade to long-term contract.")
-                    st.write("2. Bundle tech support or online security.")
-                    st.write("3. Provide a loyalty discount on monthly charges.")
-                else:
-                    st.write("Maintain current service level and consider selective upsell.")
-
-    except Exception:
-        st.error("Connection Error: Ensure FastAPI is running at http://127.0.0.1:8000")
+if st.button("Analyze Customer Risk", use_container_width=True):
+    if API_BASE:
+        try:
+            res = requests.post(f"{API_BASE}/predict", json=data, timeout=30).json()
+        except Exception:
+            st.error(
+                f"Connection Error: FastAPI did not respond at {API_BASE}. "
+                "Unset CHURN_API_BASE to use the built-in in-process model."
+            )
+            st.stop()
+    else:
+        res = predict_churn(data)
+    show_result(res)

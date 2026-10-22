@@ -1,9 +1,14 @@
 import os
 import pickle
+import sys
 import warnings
 
 import matplotlib
 import pandas as pd
+
+# Keep prints safe on Windows (cp1252) hosts as well as Linux.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 matplotlib.use("Agg") # Required for running without a GUI
 from pathlib import Path
