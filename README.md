@@ -1,63 +1,72 @@
-﻿# Telco Customer Churn Prediction
+﻿# Customer Churn Prediction
 
-End-to-end ML project with:
-- model training pipeline (`src/churn_analysis.py`)
-- FastAPI inference service (`app/api.py`)
-- Streamlit dashboard (`app/app.py`)
+Telco churn scoring: a Random Forest trained on 7,043 customer records with
+engineered domain features (tenure group, charge per service, contract flag,
+unprotected internet), served behind a FastAPI endpoint that returns the
+churn probability and the decision.
 
-## Project Structure
+The service is **probe-friendly**: model artifacts load lazily, so the
+process starts and reports "not ready" instead of crashing when the model
+file is missing.
 
-```text
-customer_churn_project/
-  app/
-    api.py
-    app.py
-  data/
-    telco_churn.csv          # generated dataset
-  models/
-    model_artifacts.pkl      # generated model artifacts
-  src/
-    generate_dataset.py
-    churn_analysis.py
-  requirements.txt
-  README.md
-```
-
-## Quick Start
+## Quick start
 
 ```bash
-# 1) Install dependencies
+python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
-# 2) Generate data
-python -m src.generate_dataset
-
-# 3) Train model (creates models/model_artifacts.pkl)
-python -m src.churn_analysis
-
-# 4) Run API
+python -m app.train                       # train -> models/model_artifacts.pkl
 uvicorn app.api:app --reload
+```
 
-# 5) In another terminal, run dashboard
-streamlit run app/app.py
+## API
+
+| Method | Route | Purpose |
+|---|---|---|
+| `GET` | `/` | Service banner |
+| `GET` | `/health` | Liveness - always 200 while the process is up |
+| `GET` | `/ready` | Readiness - 200 when the model is loaded, 503 otherwise |
+| `POST` | `/predict` | Score a customer |
+
+```bash
+curl -X POST localhost:8000/predict \
+  -H "Content-Type: application/json" \
+  -d '{"tenure": 42, "MonthlyCharges": 70.5, "Contract": "One year",
+       "InternetService": "Fiber optic", "OnlineSecurity": "No",
+       "TechSupport": "No", "PhoneService": "Yes", "MultipleLines": "Yes",
+       "OnlineBackup": "Yes", "DeviceProtection": "No",
+       "StreamingTV": "Yes", "StreamingMovies": "Yes"}'
+```
+
+```json
+{"churn_probability": 0.383, "prediction": 0, "status": "Success"}
+```
+
+## How the model works
+
+1. **Service columns** are binarised (`Yes`/`No` → 1/0) and the number of
+   active services is derived.
+2. **Domain features**: charge per service, long-contract flag, unprotected
+   internet (no security *and* no support) and a tenure band.
+3. The pipeline is scaled and fitted with a **Random Forest**; the
+   decision threshold is tuned for recall on the churn class, because a
+   missed churn costs more than a false alarm.
+4. `models/model_artifacts.pkl` holds the fitted pipeline, the feature list
+   and the scaler.
+
+## Project structure
+
+```text
+app/api.py       FastAPI service (/health, /ready, /predict)
+app/train.py     training and threshold tuning
+models/          model_artifacts.pkl
+data/            the telco dataset
+notebooks/       exploration
 ```
 
 ## Notes
 
-- `data/` and `models/` contain generated artifacts and are ignored by Git.
-- `outputs/` is optional generated visualization output and is ignored by Git.
-
-## Future Improvements
-
-- Refactor FastAPI into a production-style structure (`routers/`, `schemas/`, `services/`).
-- Add `/health` and `/reload` endpoints with model/version metadata.
-- Implement heuristic fallback when trained artifacts are unavailable.
-- Add prediction logging (`JSONL` or SQLite) for monitoring and traceability.
-- Add unit and integration tests (`pytest`) for training + API routes.
-- Containerize with Docker and add one-command local startup.
-- Add GitHub Actions CI (lint, test, build checks on every push/PR).
-- Add post-training evaluation report (metrics + plots).
-- Add SHAP-based explainability for richer prediction insights.
-- Add basic drift checks for incoming feature distributions.
-- Add API auth/rate limiting for safer external use.
-- Add deployment guide and live demo link (Render/Railway/AWS).
+- `/ready` and `/health` are the contract an orchestrator needs: the
+  container must start even without artifacts, and report "not ready"
+  until the model can be loaded.
+- Retrain with `python -m app.train` and restart the service.
