@@ -2,30 +2,75 @@ from pathlib import Path
 import pickle
 
 import pandas as pd
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 
-app = FastAPI()
+app = FastAPI(
+    title="Customer Churn Prediction API",
+    version="1.0.0",
+    description="Telco churn probability scoring with domain features.",
+)
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 MODEL_PATH = BASE_DIR / "models" / "model_artifacts.pkl"
 
-if not MODEL_PATH.exists():
-    raise FileNotFoundError(f"Missing model file at: {MODEL_PATH}")
+# The artifacts are loaded lazily: the process must start (and answer
+# /health) even when the model file is missing, so an orchestrator can tell
+# "not ready" apart from "crashed".
+_artifacts: dict | None = None
+model = None
+feature_cols: list = []
+scaler = None
+scale_cols = None
+_load_error: str | None = None
 
-with open(MODEL_PATH, "rb") as f:
-    artifacts = pickle.load(f)
 
-model = artifacts["best_model"]
-feature_cols = artifacts["feature_cols"]
-scaler = artifacts.get("scaler")
-scale_cols = artifacts.get("scale_cols")
+def load_artifacts() -> bool:
+    """Load the model artifacts once; remember any failure for /ready."""
+    global _artifacts, model, feature_cols, scaler, scale_cols, _load_error
 
-print(f"Pipeline ready. Loaded {len(feature_cols)} features.")
+    if model is not None:
+        return True
+    try:
+        if not MODEL_PATH.exists():
+            raise FileNotFoundError(f"Missing model file at: {MODEL_PATH}")
+        with open(MODEL_PATH, "rb") as handle:
+            artifacts = pickle.load(handle)
+        _artifacts = artifacts
+        model = artifacts["best_model"]
+        feature_cols = artifacts["feature_cols"]
+        scaler = artifacts.get("scaler")
+        scale_cols = artifacts.get("scale_cols")
+        _load_error = None
+        print(f"Pipeline ready. Loaded {len(feature_cols)} features.")
+        return True
+    except Exception as exc:  # noqa: BLE001 - surfaced through /ready
+        _load_error = str(exc)
+        print(f"Model artifacts unavailable: {exc}")
+        return False
+
+
+load_artifacts()
 
 
 @app.get("/")
 def home():
     return {"message": "Churn Prediction API Running"}
+
+
+@app.get("/health")
+def health():
+    """Liveness: the process is up. Never depends on the model artifact."""
+    return {"status": "ok"}
+
+
+@app.get("/ready")
+def ready():
+    """Readiness: the model artifact is loaded, so scoring can be served."""
+    if not load_artifacts():
+        raise HTTPException(
+            status_code=503, detail=f"Model artifacts unavailable: {_load_error}"
+        )
+    return {"status": "ready", "model_loaded": True, "features": len(feature_cols)}
 
 
 def preprocess(data: dict):
