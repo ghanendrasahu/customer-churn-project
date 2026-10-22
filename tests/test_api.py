@@ -37,8 +37,13 @@ def test_health_is_always_available(client):
 def test_ready_reports_the_model_state(client):
     response = client.get("/ready")
 
+    # 200 with the model loaded, 503 with a reason when the artifact is absent.
     assert response.status_code in {200, 503}
-    assert "model_loaded" in response.json()
+    body = response.json()
+    if response.status_code == 503:
+        assert body["detail"]
+    else:
+        assert body["model_loaded"] is True
 
 
 @pytest.mark.skipif(not MODEL_PRESENT, reason="model artifact is a build output")
