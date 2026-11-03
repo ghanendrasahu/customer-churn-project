@@ -5,12 +5,15 @@ from pathlib import Path
 import requests
 import streamlit as st
 
-# Allow `streamlit run app/app.py` from the repo root and from any cwd.
-ROOT = Path(__file__).resolve().parent.parent
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+# Import the sibling runtime directly. `from app.predict_runtime import ...`
+# would resolve `app` to this file (app/app.py), which is not a package.
+# Adding the script directory also keeps it importable under Streamlit's
+# AppTest and any runner that does not seed sys.path with the script folder.
+_APP_DIR = Path(__file__).resolve().parent
+if str(_APP_DIR) not in sys.path:
+    sys.path.insert(0, str(_APP_DIR))
 
-from app.predict_runtime import predict_churn  # noqa: E402
+from predict_runtime import predict as predict_churn  # noqa: E402
 
 # Set CHURN_API_BASE (e.g. https://churn-api.onrender.com) to score through
 # the FastAPI service instead of the in-process model. Streamlit Cloud uses
