@@ -9,6 +9,10 @@ The service is **probe-friendly**: model artifacts load lazily, so the
 process starts and reports "not ready" instead of crashing when the model
 file is missing.
 
+> **Live demo:** https://customer-churn-app-1jyq.onrender.com
+>
+> Free-tier hosting: the first load after idle can take 30-60 seconds.
+
 ## Quick start
 
 ```bash
